@@ -1583,3 +1583,178 @@ kbd {
   .subnote-card { padding: 16px; }
   header { padding: 10px 14px; }
 }
+
+/* =========================================================================
+   📱 스마트폰(모바일) 전용 가독성 극대화 & 상단 메뉴 슬림화 패치
+   ========================================================================= */
+@media (max-width: 768px) {
+  /* 1. 상단 헤더를 고정(sticky) 해제하고 1줄 가로 스크롤로 얇게 축소 */
+  header {
+    position: relative;
+    padding: 8px 10px;
+    gap: 6px;
+  }
+  header h1 {
+    font-size: 1rem;
+  }
+  .brand-subtitle {
+    display: none; /* 모바일에서는 부제목 숨겨서 공간 확보 */
+  }
+  nav {
+    width: 100%;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 2px;
+    gap: 4px;
+    -webkit-overflow-scrolling: touch;
+  }
+  nav button, .theme-selector-pill {
+    padding: 5px 9px;
+    font-size: 0.75rem;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  /* 2. 컨테이너 좌우 여백 최소화 → 본문 폭 최대 확보 */
+  .container {
+    margin: 8px auto;
+    padding: 0 6px;
+  }
+
+  /* 3. 통계 바를 1줄 미니 스크롤 바로 압축 & 타이머는 필요할 때만 */
+  .stats-bar {
+    padding: 6px 10px;
+    margin-bottom: 6px;
+    gap: 6px;
+    border-radius: 10px;
+  }
+  .stat-badges {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    width: 100%;
+    padding-bottom: 2px;
+    gap: 4px;
+  }
+  .stat-badge, .goal-wrap {
+    padding: 3px 7px;
+    font-size: 0.72rem;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .timer-box {
+    display: none; /* 모바일에서 자리 차지하는 타이머 숨김 (도구 펼치기 시 표시) */
+  }
+  body.mobile-tools-open .timer-box {
+    display: flex;
+    width: 100%;
+    justify-content: flex-end;
+    padding-top: 4px;
+  }
+
+  /* 4. 거대한 3단 컨트롤 바를 '문제 이동 1줄'만 남기고 깔끔하게 접기 */
+  .control-bar {
+    padding: 8px 10px;
+    margin-bottom: 8px;
+    gap: 6px;
+    border-radius: 10px;
+  }
+  /* 모바일에서는 기본적으로 TTS 상세바, 가림막 편집줄, 필터줄을 접어둠 (하단 리모컨으로 조작 가능) */
+  .control-bar .tts-player-bar,
+  .control-bar .control-row:nth-of-type(2) {
+    display: none;
+  }
+  .control-bar .control-row:nth-of-type(3) {
+    border-top: none !important;
+    padding-top: 0 !important;
+  }
+  /* 3열에서도 검색/필터 뭉치는 접어두고 [이전 / 문제선택 / 다음]만 1줄로 노출 */
+  .control-bar .control-row:nth-of-type(3) > div:first-child {
+    display: none;
+  }
+  .control-bar .control-row:nth-of-type(3) > div:last-child {
+    width: 100%;
+    justify-content: space-between;
+  }
+  #card-selector {
+    flex: 1;
+    max-width: none !important;
+    font-size: 0.8rem;
+    padding: 6px;
+  }
+
+  /* [🔧 상단 도구 펼치기] 상태일 때만 전체 컨트롤 표시 */
+  body.mobile-tools-open .control-bar .tts-player-bar,
+  body.mobile-tools-open .control-bar .control-row:nth-of-type(2),
+  body.mobile-tools-open .control-bar .control-row:nth-of-type(3) > div:first-child {
+    display: flex;
+  }
+  body.mobile-tools-open .control-bar .control-row:nth-of-type(3) {
+    border-top: 1px solid var(--card-border) !important;
+    padding-top: 8px !important;
+  }
+
+  /* 5. 본문 서브노트 카드 여백 및 글자 가독성 극대화 */
+  .subnote-card {
+    padding: 14px 12px;
+    border-radius: 12px;
+    margin-bottom: 14px;
+  }
+  .subnote-title {
+    font-size: 1.05rem;
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    gap: 6px;
+  }
+  .flag-picker-bar {
+    padding: 3px 6px;
+    gap: 4px;
+  }
+  .flag-dot-btn {
+    width: 17px;
+    height: 17px;
+  }
+  .para-mask {
+    margin: 4px 0 4px 2px;
+    padding: 6px 8px;
+    font-size: calc(0.95rem * var(--content-scale));
+    line-height: 1.62;
+  }
+  .section-heading {
+    font-size: calc(1rem * var(--content-scale));
+    margin-top: 14px;
+    margin-bottom: 5px;
+    padding-left: 8px;
+  }
+  .hwp-table th, .hwp-table td,
+  .rendered-content table th, .rendered-content table td {
+    padding: 7px 6px;
+    font-size: calc(0.88rem * var(--content-scale));
+  }
+  .img-block-wrapper {
+    margin: 8px 0;
+  }
+  .shortcut-guide {
+    display: none; /* 모바일에서는 키보드 단축키 안내문 숨김 */
+  }
+}
+
+/* 모바일 전용 [🔽 상세도구 펼치기/접기] 토글 버튼 */
+.mobile-tools-toggle-btn {
+  display: none;
+}
+@media (max-width: 768px) {
+  .mobile-tools-toggle-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--surface-bg);
+    border: 1px solid var(--card-border);
+    color: var(--sub-text);
+    font-size: 0.75rem;
+    font-weight: 800;
+    padding: 5px 9px;
+    border-radius: 8px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+}

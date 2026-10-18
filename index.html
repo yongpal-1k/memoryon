@@ -232,15 +232,14 @@
             </label>
             <button class="btn btn-outline" onclick="shuffleFilteredCards()" title="현재 목록 순서 섞기">🔀 랜덤</button>
           </div>
-
-          <div style="display:flex; gap:5px; align-items:center;">
+              <div style="display:flex; gap:5px; align-items:center;">
             <button class="btn btn-outline" onclick="prevCard()">◀ 이전</button>
             <select id="card-selector" onchange="renderSelectedCard(this.value)" style="max-width:240px; padding:7px 9px; font-weight:700; border-radius:8px; border:1px solid var(--card-border); background:var(--card-bg); color:var(--text);"></select>
             <button class="btn btn-outline" onclick="nextCard()">다음 ▶</button>
+            <button type="button" class="mobile-tools-toggle-btn" onclick="document.body.classList.toggle('mobile-tools-open'); this.innerText = document.body.classList.contains('mobile-tools-open') ? '🔼 접기' : '🔧 도구';">🔧 도구</button>
           </div>
         </div>
       </div>
-
       <!-- ✂️ 가림막 커스텀 편집 모드 전용 안내 및 도구 바 -->
       <div id="mask-editor-toolbar" class="mask-editor-toolbar" onmousedown="event.preventDefault()">
         <div style="line-height:1.45;">
