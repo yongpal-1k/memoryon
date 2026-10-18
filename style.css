@@ -1758,3 +1758,41 @@ kbd {
     white-space: nowrap;
   }
 }
+/* =========================================================================
+   📱 스마트폰 우측 여백(가로 밀림) 완전 제거 & 하단 리모컨 정중앙 고정 패치
+   ========================================================================= */
+html, body {
+  max-width: 100%;
+  overflow-x: hidden; /* 오른쪽 하얀 여백 및 좌우 흔들림 원천 차단 */
+}
+
+@media (max-width: 768px) {
+  header, .container, .stats-bar, .control-bar, .subnote-card {
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
+  /* 하단 미니 리모컨 바를 휴대폰 화면 정중앙(좌우 대칭)에 딱 맞게 고정 */
+  .floating-bottom-dock {
+    left: 8px !important;
+    right: 8px !important;
+    transform: none !important;
+    width: calc(100vw - 16px) !important;
+    max-width: none !important;
+    justify-content: space-between;
+    padding: 6px 8px;
+    gap: 4px;
+    bottom: 10px;
+    box-sizing: border-box;
+  }
+
+  /* 리모컨 안의 6개 버튼이 잘리지 않고 한 줄에 쏙 들어오도록 비율 자동 조절 */
+  .floating-bottom-dock .dock-btn {
+    flex: 1 1 auto;
+    text-align: center;
+    padding: 8px 4px;
+    font-size: 0.72rem;
+    letter-spacing: -0.04em;
+  }
+}
+
