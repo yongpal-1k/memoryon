@@ -358,7 +358,6 @@ function populateDirectVoiceDropdown() {
   if (!directSel) return;
 
   const voices = window.speechSynthesis.getVoices() || [];
-  // 모바일에서는 lang 표기가 ko_KR, kor, ko-KR 등 다양하므로 폭넓게 탐색
   const koVoices = voices.filter(v =>
     (v.lang && /ko|kor/i.test(v.lang)) || /korean|한국어|선희|인준|sunhi|injoon/i.test(v.name)
   );
@@ -369,20 +368,23 @@ function populateDirectVoiceDropdown() {
     return bNat - aNat;
   });
 
-  const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-  const savedDirect = localStorage.getItem('memoryon_direct_voice_name') || (isMobile ? 'SYSTEM_DEFAULT' : 'AUTO');
+  const savedDirect = localStorage.getItem('memoryon_direct_voice_name') || 'AUTO';
 
   let html = `
-    <option value="AUTO">✨ 자동 (기본 추천)</option>
-    <option value="SYSTEM_DEFAULT">📱 기기 기본 성우</option>
+    <option value="AUTO">✨ 톤(A~D)에 맞춰 자동 변경</option>
+    <option value="SYSTEM_DEFAULT">📱 기기 기본 성우 고정</option>
   `;
 
   koVoices.forEach((v, idx) => {
     const isSunHi = /sunhi/i.test(v.name);
     const isInJoon = /injoon/i.test(v.name);
-    const shortLabel = isSunHi
-      ? '👩‍💼 선희 (여성)'
-      : (isInJoon ? '👨‍💼 인준 (남성)' : `🔊 한국어 성우 ${idx + 1}`);
+    let shortLabel = `🔊 한국어 성우 ${idx + 1}`;
+    if (isSunHi) shortLabel = '👩‍💼 선희 (MS 여성)';
+    else if (isInJoon) shortLabel = '👨‍💼 인준 (MS 남성)';
+    else if (/kob|kod/i.test(v.name)) shortLabel = `👨‍🏫 모바일/구글 성우 ${idx + 1} (타입B)`;
+    else if (/ism|koc/i.test(v.name)) shortLabel = `👩‍🏫 모바일/구글 성우 ${idx + 1} (타입A)`;
+    else shortLabel = `🔊 성우 ${idx + 1} (${v.name.slice(0, 14)})`;
+
     html += `<option value="${v.name}">${shortLabel}</option>`;
   });
 
@@ -390,10 +392,9 @@ function populateDirectVoiceDropdown() {
   if (savedDirect === 'SYSTEM_DEFAULT' || savedDirect === 'AUTO' || koVoices.some(v => v.name === savedDirect)) {
     directSel.value = savedDirect;
   } else {
-    directSel.value = isMobile ? 'SYSTEM_DEFAULT' : 'AUTO';
+    directSel.value = 'AUTO';
   }
 }
-
 
 function initGoogleAnnouncerSystem() {
   if (!('speechSynthesis' in window)) return;
@@ -420,6 +421,9 @@ function initGoogleAnnouncerSystem() {
   }
 
   populateDirectVoiceDropdown();
+  // 모바일 브라우저는 음성 목록을 뒤늦게 불러오므로 0.3초, 1초 뒤 재확인
+  setTimeout(populateDirectVoiceDropdown, 300);
+  setTimeout(populateDirectVoiceDropdown, 1000);
   window.speechSynthesis.onvoiceschanged = () => {
     populateDirectVoiceDropdown();
   };
@@ -467,62 +471,50 @@ function updateDockTtsModeButtonLabel() {
   dockModeBtn.innerText = map[ttsPlayMode] || '🔊 1회';
 }
 
-// ★ MS Edge Natural 신경망 성우(선희 / 인준 / 현수) 최우선 선택 + 크롬 Google 자동 폴백 ★
 function pickBestGoogleKoreanVoice(presetVal) {
   const allVoices = window.speechSynthesis.getVoices() || [];
   const koVoices = allVoices.filter(v =>
     (v.lang && /ko|kor/i.test(v.lang)) || /korean|한국어|선희|인준|sunhi|injoon/i.test(v.name)
   );
 
-  const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
   const directSel = document.getElementById('tts-direct-voice-select');
-  const directName = directSel
-    ? directSel.value
-    : (localStorage.getItem('memoryon_direct_voice_name') || (isMobile ? 'SYSTEM_DEFAULT' : 'AUTO'));
+  const directName = directSel ? directSel.value : (localStorage.getItem('memoryon_direct_voice_name') || 'AUTO');
 
-  // ★ 핵심: 모바일이거나 '휴대폰 시스템 설정 음성 사용' 선택 시 null을 반환하여
-  // 안드로이드/아이폰 [글자 읽어주기]에서 사용자가 설정한 목소리가 100% 그대로 나오게 함!
+  // 1) '📱 기기 기본 성우 고정'을 선택한 경우: voice를 지정하지 않아 휴대폰 시스템 기본 엔진 사용
   if (directName === 'SYSTEM_DEFAULT') {
     return null;
   }
 
-  // 사용자가 드롭다운에서 특정 성우를 직접 고른 경우
+  // 2) 사용자가 '🗣️ 성우' 드롭다운에서 특정 성우를 직접 고른 경우: 무조건 그 성우로 재생!
   if (directName && directName !== 'AUTO') {
     const exactVoice = koVoices.find(v => v.name === directName);
     if (exactVoice) return exactVoice;
   }
 
-  // 모바일에서 AUTO로 되어 있더라도 MS Natural 성우가 없다면 휴대폰 시스템 설정을 존중
+  if (koVoices.length === 0) return null;
+
+  // 3) PC Edge 환경: MS 선희 / 인준 Natural 성우 우선 매칭
   const sunHiVoice = koVoices.find(v => /sunhi/i.test(v.name) && /natural|online/i.test(v.name))
     || koVoices.find(v => /sunhi/i.test(v.name));
   const inJoonVoice = koVoices.find(v => /injoon/i.test(v.name) && /natural|online/i.test(v.name))
     || koVoices.find(v => /injoon/i.test(v.name));
   const hyunsuVoice = koVoices.find(v => /hyunsu/i.test(v.name));
-  const anyNaturalVoice = koVoices.find(v => /natural|online/i.test(v.name));
 
-  if (presetVal === 'google_calm') {
-    if (inJoonVoice) return inJoonVoice;
-    if (hyunsuVoice) return hyunsuVoice;
-    if (anyNaturalVoice) return anyNaturalVoice;
-  } else if (presetVal === 'google_bright') {
-    if (sunHiVoice) return sunHiVoice;
-    if (hyunsuVoice) return hyunsuVoice;
-    if (anyNaturalVoice) return anyNaturalVoice;
-  } else {
-    if (sunHiVoice) return sunHiVoice;
-    if (anyNaturalVoice) return anyNaturalVoice;
+  if (sunHiVoice || inJoonVoice) {
+    if (presetVal === 'google_calm' && inJoonVoice) return inJoonVoice;
+    if (presetVal === 'google_bright' && (hyunsuVoice || sunHiVoice)) return hyunsuVoice || sunHiVoice;
+    return sunHiVoice || inJoonVoice;
   }
 
-  // 모바일에서는 강제로 첫 번째 음성을 덮어쓰지 않고 시스템 기본 설정을 따르게 함
-  if (isMobile) return null;
+  // 4) 모바일(안드로이드/아이폰) 환경에서 여러 한국어 성우가 있을 때 톤(A~D)별로 다른 성우 자동 배정
+  if (koVoices.length > 1) {
+    if (presetVal === 'google_calm') return koVoices[1 % koVoices.length];
+    if (presetVal === 'google_bright') return koVoices[2 % koVoices.length];
+    if (presetVal === 'google_fast') return koVoices[3 % koVoices.length];
+  }
 
-  const googleVoice = koVoices.find(v => v.name.toLowerCase().includes('google'));
-  if (googleVoice) return googleVoice;
-
-  const nonHeami = koVoices.find(v => !v.name.toLowerCase().includes('heami') && !v.name.toLowerCase().includes('desktop'));
-  return nonHeami || koVoices[0] || null;
+  return koVoices[0] || null;
 }
-
 
 function refineTextForKoreanSpeech(raw) {
   if (!raw) return '';
