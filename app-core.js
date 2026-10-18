@@ -358,35 +358,42 @@ function populateDirectVoiceDropdown() {
   if (!directSel) return;
 
   const voices = window.speechSynthesis.getVoices() || [];
-  const koVoices = voices.filter(v => v.lang && v.lang.toLowerCase().includes('ko'));
+  // 모바일에서는 lang 표기가 ko_KR, kor, ko-KR 등 다양하므로 폭넓게 탐색
+  const koVoices = voices.filter(v =>
+    (v.lang && /ko|kor/i.test(v.lang)) || /korean|한국어|선희|인준|sunhi|injoon/i.test(v.name)
+  );
 
-  // Natural / Online 음성을 맨 위로 정렬
   koVoices.sort((a, b) => {
     const aNat = /natural|online/i.test(a.name) ? 1 : 0;
     const bNat = /natural|online/i.test(b.name) ? 1 : 0;
     return bNat - aNat;
   });
 
-  const savedDirect = localStorage.getItem('memoryon_direct_voice_name') || 'AUTO';
-  let html = `<option value="AUTO">✨ 프리셋 자동 매칭 (선희/인준 우선)</option>`;
+  const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+  const savedDirect = localStorage.getItem('memoryon_direct_voice_name') || (isMobile ? 'SYSTEM_DEFAULT' : 'AUTO');
 
-  koVoices.forEach(v => {
-    const isNat = /natural|online/i.test(v.name);
+  let html = `
+    <option value="AUTO">✨ 자동 (기본 추천)</option>
+    <option value="SYSTEM_DEFAULT">📱 기기 기본 성우</option>
+  `;
+
+  koVoices.forEach((v, idx) => {
     const isSunHi = /sunhi/i.test(v.name);
     const isInJoon = /injoon/i.test(v.name);
-    const badge = isSunHi
-      ? '👩‍💼 [MS 선희 Natural] '
-      : (isInJoon ? '👨‍💼 [MS 인준 Natural] ' : (isNat ? '✨ [신경망] ' : '🔊 '));
-    html += `<option value="${v.name}">${badge}${v.name}</option>`;
+    const shortLabel = isSunHi
+      ? '👩‍💼 선희 (여성)'
+      : (isInJoon ? '👨‍💼 인준 (남성)' : `🔊 한국어 성우 ${idx + 1}`);
+    html += `<option value="${v.name}">${shortLabel}</option>`;
   });
 
   directSel.innerHTML = html;
-  if (koVoices.some(v => v.name === savedDirect)) {
+  if (savedDirect === 'SYSTEM_DEFAULT' || savedDirect === 'AUTO' || koVoices.some(v => v.name === savedDirect)) {
     directSel.value = savedDirect;
   } else {
-    directSel.value = 'AUTO';
+    directSel.value = isMobile ? 'SYSTEM_DEFAULT' : 'AUTO';
   }
 }
+
 
 function initGoogleAnnouncerSystem() {
   if (!('speechSynthesis' in window)) return;
@@ -463,18 +470,29 @@ function updateDockTtsModeButtonLabel() {
 // ★ MS Edge Natural 신경망 성우(선희 / 인준 / 현수) 최우선 선택 + 크롬 Google 자동 폴백 ★
 function pickBestGoogleKoreanVoice(presetVal) {
   const allVoices = window.speechSynthesis.getVoices() || [];
-  const koVoices = allVoices.filter(v => v.lang && v.lang.toLowerCase().includes('ko'));
-  if (koVoices.length === 0) return null;
+  const koVoices = allVoices.filter(v =>
+    (v.lang && /ko|kor/i.test(v.lang)) || /korean|한국어|선희|인준|sunhi|injoon/i.test(v.name)
+  );
 
-  // 1순위: 사용자가 드롭다운에서 직접 성우를 지정한 경우
+  const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
   const directSel = document.getElementById('tts-direct-voice-select');
-  const directName = directSel ? directSel.value : (localStorage.getItem('memoryon_direct_voice_name') || 'AUTO');
+  const directName = directSel
+    ? directSel.value
+    : (localStorage.getItem('memoryon_direct_voice_name') || (isMobile ? 'SYSTEM_DEFAULT' : 'AUTO'));
+
+  // ★ 핵심: 모바일이거나 '휴대폰 시스템 설정 음성 사용' 선택 시 null을 반환하여
+  // 안드로이드/아이폰 [글자 읽어주기]에서 사용자가 설정한 목소리가 100% 그대로 나오게 함!
+  if (directName === 'SYSTEM_DEFAULT') {
+    return null;
+  }
+
+  // 사용자가 드롭다운에서 특정 성우를 직접 고른 경우
   if (directName && directName !== 'AUTO') {
     const exactVoice = koVoices.find(v => v.name === directName);
     if (exactVoice) return exactVoice;
   }
 
-  // 2순위: MS Edge Natural (Online) 신경망 성우 탐색
+  // 모바일에서 AUTO로 되어 있더라도 MS Natural 성우가 없다면 휴대폰 시스템 설정을 존중
   const sunHiVoice = koVoices.find(v => /sunhi/i.test(v.name) && /natural|online/i.test(v.name))
     || koVoices.find(v => /sunhi/i.test(v.name));
   const inJoonVoice = koVoices.find(v => /injoon/i.test(v.name) && /natural|online/i.test(v.name))
@@ -482,7 +500,6 @@ function pickBestGoogleKoreanVoice(presetVal) {
   const hyunsuVoice = koVoices.find(v => /hyunsu/i.test(v.name));
   const anyNaturalVoice = koVoices.find(v => /natural|online/i.test(v.name));
 
-  // 프리셋별 맞춤 성우 배정 (아나운서 B는 인준 남성 성우 우선, A/C/D는 선희 여성 성우 우선)
   if (presetVal === 'google_calm') {
     if (inJoonVoice) return inJoonVoice;
     if (hyunsuVoice) return hyunsuVoice;
@@ -496,14 +513,16 @@ function pickBestGoogleKoreanVoice(presetVal) {
     if (anyNaturalVoice) return anyNaturalVoice;
   }
 
-  // 3순위: 크롬 브라우저 환경일 경우 Google 한국어 음성
+  // 모바일에서는 강제로 첫 번째 음성을 덮어쓰지 않고 시스템 기본 설정을 따르게 함
+  if (isMobile) return null;
+
   const googleVoice = koVoices.find(v => v.name.toLowerCase().includes('google'));
   if (googleVoice) return googleVoice;
 
-  // 4순위: 기타 한국어 음성
   const nonHeami = koVoices.find(v => !v.name.toLowerCase().includes('heami') && !v.name.toLowerCase().includes('desktop'));
-  return nonHeami || koVoices[0];
+  return nonHeami || koVoices[0] || null;
 }
+
 
 function refineTextForKoreanSpeech(raw) {
   if (!raw) return '';

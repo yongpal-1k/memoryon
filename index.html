@@ -90,23 +90,23 @@
         </div>
       </div>
 
-      <!-- 2열: 🎙️ MS 자연어(선희/인준) & 구글 아나운서 프리셋 4종 + 성우 직접 선택 + 배속 조절 -->
+  <!-- 2열: 🎙️ 아나운서 톤 & 성우 선택 & 배속 조절 -->
       <div class="eyecare-row" style="border-top:1px dashed var(--card-border); padding-top:8px;">
         <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-          <span style="font-weight:800;">🎙️ 아나운서 프리셋:</span>
+          <span style="font-weight:800;">🎙️ 음성 톤:</span>
           <select id="tts-announcer-select" onchange="saveTtsPreferences()" style="padding:6px 10px; border-radius:8px; border:1.5px solid var(--primary); background:var(--card-bg); color:var(--text); font-weight:800;">
-            <option value="google_std" selected>👩‍🏫 아나운서 A (MS 선희 Natural / 표준 뉴스 브리핑 톤 - 기본 추천)</option>
-            <option value="google_calm">🎙️ 아나운서 B (MS 인준 Natural / 차분한 남성 인강 강사 톤)</option>
-            <option value="google_bright">💁‍♀️ 아나운서 C (선희·현수 Natural / 귀에 쏙 박히는 또렷한 딕션 톤)</option>
-            <option value="google_fast">⚡ 아나운서 D (시험 직전 속독 브리핑 톤)</option>
+            <option value="google_std" selected>👩‍🏫 A. 표준 브리핑 (기본)</option>
+            <option value="google_calm">🎙️ B. 차분한 중저음</option>
+            <option value="google_bright">💁‍♀️ C. 또렷한 강조 톤</option>
+            <option value="google_fast">⚡ D. 빠른 속독 톤</option>
           </select>
 
-          <span style="font-weight:800;">🗣️ 성우 직접 지정:</span>
-          <select id="tts-direct-voice-select" onchange="saveTtsPreferences()" style="padding:6px 10px; border-radius:8px; border:1px solid var(--card-border); background:var(--card-bg); color:var(--text); font-weight:700; max-width:250px;">
-            <option value="AUTO">✨ 프리셋 자동 매칭 (선희/인준 우선)</option>
+          <span style="font-weight:800;">🗣️ 성우:</span>
+          <select id="tts-direct-voice-select" onchange="saveTtsPreferences()" style="padding:6px 10px; border-radius:8px; border:1px solid var(--card-border); background:var(--card-bg); color:var(--text); font-weight:700; max-width:200px;">
+            <option value="AUTO">✨ 자동 매칭</option>
           </select>
 
-          <button class="btn btn-step" onclick="testTtsAnnouncer()">🔊 목소리 테스트</button>
+          <button class="btn btn-step" onclick="testTtsAnnouncer()">🔊 테스트</button>
         </div>
 
         <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
