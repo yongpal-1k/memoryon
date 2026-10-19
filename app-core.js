@@ -337,6 +337,60 @@ const GOOGLE_ANNOUNCER_PRESETS = {
   google_fast:   { pitch: 1.00, baseRate: 1.24, role: 'fast',       label: '아나운서 D (시험 직전 속독 브리핑)' }
 };
 
+// ★ 기본 내장 발음 교정 사전 (초기값) ★
+const DEFAULT_PRONUNCIATION_RULES = [
+  { from: 'CO2', to: '이산화탄소' },
+  { from: 'CO', to: '일산화탄소' },
+  { from: 'H2O', to: '물' },
+  { from: 'N2', to: '질소' },
+  { from: 'IG-100', to: '아이지 백' },
+  { from: 'IG-541', to: '아이지 오사일' },
+  { from: 'HCFC', to: '에이치씨에프씨' },
+  { from: 'HFC', to: '에이치에프씨' },
+  { from: 'NFPC', to: '엔에프피씨' },
+  { from: 'NFTC', to: '엔에프티씨' },
+  { from: 'PTC', to: '피티씨' },
+  { from: 'NTC', to: '엔티씨' },
+  { from: 'CTR', to: '씨티알' }
+];
+
+// ★ 번호(1, 2, 3...)를 '한 번/두 번'이 아닌 '일번/이번/삼번' 한자어 발음으로 변환 ★
+function numberToSinoKoreanOrdinal(numInput) {
+  const n = parseInt(numInput, 10);
+  if (isNaN(n) || n <= 0 || n >= 100) return `${numInput}번`;
+  const digits = ['', '일', '이', '삼', '사', '오', '육', '칠', '팔', '구'];
+  const tens = Math.floor(n / 10);
+  const ones = n % 10;
+  let sino = '';
+  if (tens === 1) sino += '십';
+  else if (tens > 1) sino += digits[tens] + '십';
+  sino += digits[ones];
+  return `${sino}번`;
+}
+
+// 원문자(①~⑮) 한자어 번호 매핑 테이블
+const CIRCLED_NUM_TO_SINO = {
+  '①': '일번, ', '②': '이번, ', '③': '삼번, ', '④': '사번, ', '⑤': '오번, ',
+  '⑥': '육번, ', '⑦': '칠번, ', '⑧': '팔번, ', '⑨': '구번, ', '⑩': '십번, ',
+  '⑪': '십일번, ', '⑫': '십이번, ', '⑬': '십삼번, ', '⑭': '십사번, ', '⑮': '십오번, '
+};
+
+function getCustomPronunciationRules() {
+  try {
+    const saved = localStorage.getItem('memoryon_tts_pron_rules');
+    if (saved) return JSON.parse(saved);
+  } catch (_) {}
+  return DEFAULT_PRONUNCIATION_RULES.slice();
+}
+
+function saveCustomPronunciationRules(rules) {
+  localStorage.setItem('memoryon_tts_pron_rules', JSON.stringify(rules));
+}
+
+function getTtsSkipParenthesesOption() {
+  return localStorage.getItem('memoryon_tts_skip_paren') === '1';
+}
+
 async function requestWakeLock() {
   if ('wakeLock' in navigator) {
     try {
@@ -421,7 +475,6 @@ function initGoogleAnnouncerSystem() {
   }
 
   populateDirectVoiceDropdown();
-  // 모바일 브라우저는 음성 목록을 뒤늦게 불러오므로 0.3초, 1초 뒤 재확인
   setTimeout(populateDirectVoiceDropdown, 300);
   setTimeout(populateDirectVoiceDropdown, 1000);
   window.speechSynthesis.onvoiceschanged = () => {
@@ -480,12 +533,10 @@ function pickBestGoogleKoreanVoice(presetVal) {
   const directSel = document.getElementById('tts-direct-voice-select');
   const directName = directSel ? directSel.value : (localStorage.getItem('memoryon_direct_voice_name') || 'AUTO');
 
-  // 1) '📱 기기 기본 성우 고정'을 선택한 경우: voice를 지정하지 않아 휴대폰 시스템 기본 엔진 사용
   if (directName === 'SYSTEM_DEFAULT') {
     return null;
   }
 
-  // 2) 사용자가 '🗣️ 성우' 드롭다운에서 특정 성우를 직접 고른 경우: 무조건 그 성우로 재생!
   if (directName && directName !== 'AUTO') {
     const exactVoice = koVoices.find(v => v.name === directName);
     if (exactVoice) return exactVoice;
@@ -493,7 +544,6 @@ function pickBestGoogleKoreanVoice(presetVal) {
 
   if (koVoices.length === 0) return null;
 
-  // 3) PC Edge 환경: MS 선희 / 인준 Natural 성우 우선 매칭
   const sunHiVoice = koVoices.find(v => /sunhi/i.test(v.name) && /natural|online/i.test(v.name))
     || koVoices.find(v => /sunhi/i.test(v.name));
   const inJoonVoice = koVoices.find(v => /injoon/i.test(v.name) && /natural|online/i.test(v.name))
@@ -506,7 +556,6 @@ function pickBestGoogleKoreanVoice(presetVal) {
     return sunHiVoice || inJoonVoice;
   }
 
-  // 4) 모바일(안드로이드/아이폰) 환경에서 여러 한국어 성우가 있을 때 톤(A~D)별로 다른 성우 자동 배정
   if (koVoices.length > 1) {
     if (presetVal === 'google_calm') return koVoices[1 % koVoices.length];
     if (presetVal === 'google_bright') return koVoices[2 % koVoices.length];
@@ -518,12 +567,44 @@ function pickBestGoogleKoreanVoice(presetVal) {
 
 function refineTextForKoreanSpeech(raw) {
   if (!raw) return '';
-  return raw
-    .replace(/\[\s*\d+\s*\/\s*\d+\s*\]/g, ' ')
+  let text = String(raw);
+
+  // 0. [96/10] 같은 기출 회차/배점 표기 제거
+  text = text.replace(/\[\s*\d+\s*\/\s*\d+\s*\]/g, ' ');
+
+  // 1. 괄호 안 부연설명 건너뛰기 옵션이 켜져 있으면 (1), (2), (가) 등 번호를 제외한 일반 괄호 내용 생략
+  if (getTtsSkipParenthesesOption()) {
+    text = text.replace(/\((?!\d+\)|[가-하]\))[^)]+\)/g, ' ');
+  }
+
+  // 2. ★ 핵심 해결: (1), 1), 1., ①, '1번' 등을 '한 번/두 번'이 아닌 '일번, 이번, 삼번...'으로 변환 ★
+  text = text.replace(/(^|\s)\((\d{1,2})\)(?=\s|$|[가-힣A-Za-z])/g, (_, pre, d) => `${pre}${numberToSinoKoreanOrdinal(d)}, `);
+  text = text.replace(/^(\d{1,2})\s*[).]\s*/g, (_, d) => `${numberToSinoKoreanOrdinal(d)}, `);
+  text = text.replace(/\((\d{1,2})\)/g, (_, d) => `${numberToSinoKoreanOrdinal(d)}, `);
+  text = text.replace(/\b(\d{1,2})\s*번/g, (_, d) => numberToSinoKoreanOrdinal(d));
+
+  // 원문자 ① ~ ⑮ 변환
+  text = text.replace(/[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮]/g, (m) => CIRCLED_NUM_TO_SINO[m] || m);
+
+  // 3. 사용자 정의 발음 교정 사전 적용 (긴 단어부터 우선 매칭)
+  const customRules = getCustomPronunciationRules()
+    .filter(r => r && r.from && r.from.trim())
+    .sort((a, b) => b.from.length - a.from.length);
+
+  for (const rule of customRules) {
+    const escaped = rule.from.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    if (/^[A-Za-z0-9_-]+$/.test(rule.from)) {
+      const reg = new RegExp(`\\b${escaped}\\b`, 'gi');
+      text = text.replace(reg, ` ${rule.to} `);
+    } else {
+      const reg = new RegExp(escaped, 'gi');
+      text = text.replace(reg, rule.to);
+    }
+  }
+
+  // 4. 특수기호 및 공학 수식 발음 자연스럽게 치환
+  return text
     .replace(/[■□◆◇●○▶▷★☆·]/g, ' ')
-    .replace(/^\((\d+)\)/, '$1번, ')
-    .replace(/^(\d+)\)/, '$1번, ')
-    .replace(/①/g, '첫째, ').replace(/②/g, '둘째, ').replace(/③/g, '셋째, ').replace(/④/g, '넷째, ')
     .replace(/10\^\(-(\d+)\)|10⁻³⁴/g, ' 10의 마이너스 $1승 ')
     .replace(/10\^(\d+)|10⁸/g, ' 10의 $1승 ')
     .replace(/dΦ\s*\/\s*dt/gi, ' 디 파이 오버 디 티 ')
@@ -622,7 +703,8 @@ function stopTtsPlayback() {
   updateTtsUiControls();
 }
 
-function buildTtsQueueFromCurrentCard(card) {
+// 본문 DOM에서 기본 낭독 큐(자동 추출본)를 생성하는 헬퍼 함수
+function buildDefaultTtsQueueFromDom(card) {
   const queue = [];
   const titleEl = document.getElementById('study-title');
   const bodyEl = document.getElementById('study-body');
@@ -639,26 +721,27 @@ function buildTtsQueueFromCurrentCard(card) {
 
     if (rawTitleClean && firstLineOfQ && !firstLineOfQ.startsWith(rawTitleClean) && !rawTitleClean.startsWith(firstLineOfQ)) {
       const cleanTitle = refineTextForKoreanSpeech(rawTitleClean);
-      if (cleanTitle) queue.push({ text: `${cleanTitle}.`, el: titleEl });
+      if (cleanTitle) queue.push({ text: `${cleanTitle}.`, origText: rawTitleClean, el: titleEl });
     }
 
     const qLines = Array.from(qBox.querySelectorAll('.question-line'));
     if (qLines.length > 0) {
       qLines.forEach((lineEl, idx) => {
-        const txt = refineTextForKoreanSpeech((lineEl.innerText || '').trim());
+        const rawLine = (lineEl.innerText || '').trim();
+        const txt = refineTextForKoreanSpeech(rawLine);
         if (txt) {
           const prefix = idx === 0 ? '문제. ' : '';
-          queue.push({ text: `${prefix}${txt}.`, el: lineEl });
+          queue.push({ text: `${prefix}${txt}.`, origText: rawLine, el: lineEl });
         }
       });
     } else if (qPlain) {
       const refinedQ = refineTextForKoreanSpeech(qPlain);
-      if (refinedQ) queue.push({ text: `문제. ${refinedQ}.`, el: qBox });
+      if (refinedQ) queue.push({ text: `문제. ${refinedQ}.`, origText: qPlain, el: qBox });
     }
   } else {
     const cleanTitle = refineTextForKoreanSpeech(rawTitleClean);
     if (cleanTitle) {
-      queue.push({ text: `${cleanTitle}.`, el: titleEl });
+      queue.push({ text: `${cleanTitle}.`, origText: rawTitleClean, el: titleEl });
     }
   }
 
@@ -685,20 +768,29 @@ function buildTtsQueueFromCurrentCard(card) {
         const cells = Array.from(tr.querySelectorAll('th, td'));
         if (cells.length === 0) continue;
 
+        // ★ 하단 암기표의 번호(1, 2, 3...)도 '1번(한번)'이 아닌 '일번, 이번, 삼번'으로 낭독 ★
         if (cells.length === 2 && /^\d+$/.test(cells[0].innerText.trim())) {
-          const num = cells[0].innerText.trim();
-          const val = refineTextForKoreanSpeech(cells[1].innerText.trim());
-          if (val) queue.push({ text: `${num}번, ${val}.`, el: cells[1] });
+          const numSino = numberToSinoKoreanOrdinal(cells[0].innerText.trim());
+          const rawVal = cells[1].innerText.trim();
+          const val = refineTextForKoreanSpeech(rawVal);
+          if (val) queue.push({ text: `${numSino}, ${val}.`, origText: `${cells[0].innerText.trim()} | ${rawVal}`, el: cells[1] });
         } else if (cells.length === 4 && /^\d+$/.test(cells[0].innerText.trim())) {
-          const n1 = cells[0].innerText.trim();
-          const v1 = refineTextForKoreanSpeech(cells[1].innerText.trim());
-          if (v1) queue.push({ text: `${n1}번, ${v1}.`, el: cells[1] });
-          const n2 = cells[2].innerText.trim();
-          const v2 = refineTextForKoreanSpeech(cells[3].innerText.trim());
-          if (n2 && v2) queue.push({ text: `${n2}번, ${v2}.`, el: cells[3] });
+          const n1Sino = numberToSinoKoreanOrdinal(cells[0].innerText.trim());
+          const rawV1 = cells[1].innerText.trim();
+          const v1 = refineTextForKoreanSpeech(rawV1);
+          if (v1) queue.push({ text: `${n1Sino}, ${v1}.`, origText: `${cells[0].innerText.trim()} | ${rawV1}`, el: cells[1] });
+
+          const rawN2 = cells[2].innerText.trim();
+          const rawV2 = cells[3].innerText.trim();
+          const v2 = refineTextForKoreanSpeech(rawV2);
+          if (rawN2 && v2) {
+            const n2Sino = /^\d+$/.test(rawN2) ? numberToSinoKoreanOrdinal(rawN2) : rawN2;
+            queue.push({ text: `${n2Sino}, ${v2}.`, origText: `${rawN2} | ${rawV2}`, el: cells[3] });
+          }
         } else {
-          const rowTxt = refineTextForKoreanSpeech(cells.map(c => c.innerText.trim()).filter(Boolean).join(', '));
-          if (rowTxt) queue.push({ text: rowTxt + '.', el: tr });
+          const rawRow = cells.map(c => c.innerText.trim()).filter(Boolean).join(', ');
+          const rowTxt = refineTextForKoreanSpeech(rawRow);
+          if (rowTxt) queue.push({ text: rowTxt + '.', origText: rawRow, el: tr });
         }
       }
       return;
@@ -711,9 +803,9 @@ function buildTtsQueueFromCurrentCard(card) {
       if (refined) {
         if (qBox && !answerAnnounced) {
           answerAnnounced = true;
-          queue.push({ text: `정답. ${refined}.`, el: node });
+          queue.push({ text: `정답. ${refined}.`, origText: rawTxt, el: node });
         } else {
-          queue.push({ text: `${refined}.`, el: node });
+          queue.push({ text: `${refined}.`, origText: rawTxt, el: node });
         }
       }
       return;
@@ -729,9 +821,9 @@ function buildTtsQueueFromCurrentCard(card) {
         if (refined) {
           if (qBox && !answerAnnounced) {
             answerAnnounced = true;
-            queue.push({ text: `정답. ${refined}.`, el: node });
+            queue.push({ text: `정답. ${refined}.`, origText: rawTxt, el: node });
           } else {
-            queue.push({ text: `${refined}.`, el: node });
+            queue.push({ text: `${refined}.`, origText: rawTxt, el: node });
           }
         }
       }
@@ -740,6 +832,27 @@ function buildTtsQueueFromCurrentCard(card) {
 
   Array.from(bodyEl.children).forEach(processNode);
   return queue;
+}
+
+// 실제 TTS 재생 시 호출되는 큐 생성 함수 (카드별 커스텀 편집 대본이 있으면 우선 적용!)
+function buildTtsQueueFromCurrentCard(card) {
+  const defaultQueue = buildDefaultTtsQueueFromDom(card);
+  if (!card || !Array.isArray(card.customTtsScript) || card.customTtsScript.length === 0) {
+    return defaultQueue;
+  }
+
+  const finalQueue = [];
+  card.customTtsScript.forEach((item, idx) => {
+    if (!item || item.enabled === false) return;
+    const spoken = refineTextForKoreanSpeech(item.text || '');
+    if (!spoken) return;
+    const matchedEl = defaultQueue[idx] ? defaultQueue[idx].el : null;
+    finalQueue.push({
+      text: spoken.endsWith('.') ? spoken : `${spoken}.`,
+      el: matchedEl
+    });
+  });
+  return finalQueue;
 }
 
 function autoRevealElementForTts(el) {
@@ -843,7 +956,6 @@ function playNextTtsChunk() {
     utter.voice = selectedVoice;
   }
 
-  // MS Natural 신경망 성우는 기본 피치(1.0)에서 가장 자연스러운 육성이 나옴
   const isNaturalVoice = selectedVoice && /natural|online/i.test(selectedVoice.name);
   utter.pitch = isNaturalVoice ? (presetKey === 'google_bright' ? 1.03 : 1.0) : preset.pitch;
   utter.rate = Math.min(2.0, Math.max(0.7, +(preset.baseRate * userRateMult).toFixed(2)));
@@ -934,7 +1046,7 @@ function testTtsAnnouncer() {
 
   const selectedVoice = pickBestGoogleKoreanVoice(presetKey);
   const voiceLabel = selectedVoice ? selectedVoice.name : '기본 한국어 음성';
-  const sampleMsg = `안녕하십니까. 메모리온 스마트 암기 스튜디오 음성 테스트입니다. 현재 연결된 성우는 ${voiceLabel.includes('SunHi') ? '마이크로소프트 선희 아나운서' : (voiceLabel.includes('InJoon') ? '마이크로소프트 인준 아나운서' : '한국어 아나운서')}입니다.`;
+  const sampleMsg = `안녕하십니까. 메모리온 스마트 암기 스튜디오 음성 테스트입니다. 현재 연결된 성우는 ${voiceLabel.includes('SunHi') ? '마이크로소프트 선희 아나운서' : (voiceLabel.includes('InJoon') ? '마이크로소프트 인준 아나운서' : '한국어 아나운서')}입니다. 일번, 이번, 삼번 발음이 정확하게 교정되었습니다.`;
 
   const utter = new SpeechSynthesisUtterance(sampleMsg);
   utter.lang = 'ko-KR';
@@ -1656,6 +1768,7 @@ function renderSelectedCard(id, options = {}) {
     setMaskMode(currentMaskMode);
   }
   updateTtsUiControls();
+  updateTtsScriptButtonBadge(card);
 }
 
 function openImageZoomFromBtn(btnEl) {
@@ -2303,6 +2416,9 @@ function injectDirectUpgradeButtons() {
     delBtn.onclick = () => batchDeleteCardsFromBrowser();
     wrap.appendChild(delBtn);
   }
+
+  // ★ TTS 오디오 낭독 편집기 & 발음 교정 사전 버튼 주입 ★
+  injectTtsScriptAndPronButtons();
 }
 
 function editCardInDirectEditor(cardId) {
@@ -2687,7 +2803,7 @@ function applyDirectPreviewMaskMode(mode) {
     cells.forEach(el => el.classList.add('masked'));
     paras.forEach(el => el.classList.add('masked'));
     imgs.forEach(el => el.classList.add('masked'));
-    reds.forEach(el => el.classList.add('masked'));
+    reds.forEach(el => el.classList.remove('masked'));
     clozes.forEach(el => el.classList.add('masked'));
   } else if (mode === 'red_and_cloze') {
     cells.forEach(el => el.classList.remove('masked'));
@@ -3113,31 +3229,309 @@ async function registerDirectBatchCards() {
 }
 
 /* =========================================================================
+   ★ 🎙️ 카드별 오디오 낭독 대본 편집기 & 🗣️ 발음 교정 사전 모달 ★
+   ========================================================================= */
+
+function injectTtsScriptAndPronButtons() {
+  const ttsBar = document.querySelector('.tts-player-bar > div:first-child');
+  if (ttsBar && !document.getElementById('tts-script-edit-btn')) {
+    const scriptBtn = document.createElement('button');
+    scriptBtn.id = 'tts-script-edit-btn';
+    scriptBtn.type = 'button';
+    scriptBtn.className = 'btn btn-outline';
+    scriptBtn.style.borderColor = '#8b5cf6';
+    scriptBtn.style.color = '#6d28d9';
+    scriptBtn.title = '현재 카드의 TTS 낭독 대본을 줄 단위로 직접 수정하거나 특정 줄을 건너뛰게 설정합니다';
+    scriptBtn.innerHTML = '🎙️ 낭독편집';
+    scriptBtn.onclick = () => openTtsScriptEditorModal();
+    ttsBar.appendChild(scriptBtn);
+
+    const pronBtn = document.createElement('button');
+    pronBtn.id = 'tts-pron-dict-btn';
+    pronBtn.type = 'button';
+    pronBtn.className = 'btn btn-outline';
+    pronBtn.style.borderColor = '#0d9488';
+    pronBtn.style.color = '#0f766e';
+    pronBtn.title = '자주 어색하게 읽히는 약어·한자어·수식의 발음을 원하는 한글 발음으로 등록합니다';
+    pronBtn.innerHTML = '🗣️ 발음교정';
+    pronBtn.onclick = () => openPronunciationDictModal();
+    ttsBar.appendChild(pronBtn);
+  }
+  ensureTtsModalsCreated();
+}
+
+function updateTtsScriptButtonBadge(card) {
+  const btn = document.getElementById('tts-script-edit-btn');
+  if (!btn) return;
+  if (card && Array.isArray(card.customTtsScript) && card.customTtsScript.length > 0) {
+    btn.innerHTML = '🎙️ 낭독편집 (커스텀ON)';
+    btn.style.background = '#f3e8ff';
+  } else {
+    btn.innerHTML = '🎙️ 낭독편집';
+    btn.style.background = '';
+  }
+}
+
+function ensureTtsModalsCreated() {
+  if (document.getElementById('tts-script-modal')) return;
+
+  const modalWrap = document.createElement('div');
+  modalWrap.innerHTML = `
+    <!-- 1. 카드별 오디오 낭독 대본 편집 모달 -->
+    <div id="tts-script-modal" style="display:none; position:fixed; inset:0; background:rgba(15,23,42,0.75); z-index:9600; align-items:center; justify-content:center; padding:16px;">
+      <div style="background:var(--card-bg); color:var(--text); width:100%; max-width:780px; max-height:88vh; border-radius:16px; border:2px solid #8b5cf6; box-shadow:0 20px 50px rgba(0,0,0,0.4); display:flex; flex-direction:column; overflow:hidden;">
+        <div style="padding:14px 18px; background:var(--surface-bg); border-bottom:1px solid var(--card-border); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+          <div>
+            <h3 style="font-size:1.05rem; font-weight:800;">🎙️ 현재 카드 오디오 낭독 대본(Script) 편집기</h3>
+            <p style="font-size:0.78rem; color:var(--sub-text);">아나운서가 읽을 멘트를 직접 수정하거나, 읽기 싫은 줄은 체크를 해제(🔇)하세요. (본문 화면은 바뀌지 않고 음성만 바뀝니다)</p>
+          </div>
+          <button type="button" class="btn btn-outline" onclick="closeTtsScriptEditorModal()">✖ 닫기</button>
+        </div>
+
+        <div id="tts-script-rows-container" style="padding:14px 18px; overflow-y:auto; flex:1; display:flex; flex-direction:column; gap:8px;"></div>
+
+        <div style="padding:12px 18px; background:var(--surface-bg); border-top:1px solid var(--card-border); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+          <div style="display:flex; gap:6px; flex-wrap:wrap;">
+            <button type="button" class="btn btn-outline" onclick="addTtsScriptCustomRow()">➕ 낭독 줄 추가</button>
+            <button type="button" class="btn btn-outline" style="color:#e11d48;" onclick="resetCurrentCardTtsScript()">🔄 본문 자동추출로 초기화</button>
+          </div>
+          <div style="display:flex; gap:8px;">
+            <button type="button" class="btn btn-step" onclick="saveCurrentCardTtsScript(true)">▶ 저장 후 바로 전체 들어보기</button>
+            <button type="button" class="btn btn-primary" onclick="saveCurrentCardTtsScript(false)">💾 낭독 대본 저장</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 2. 글로벌 발음 교정 사전 모달 -->
+    <div id="tts-pron-modal" style="display:none; position:fixed; inset:0; background:rgba(15,23,42,0.75); z-index:9600; align-items:center; justify-content:center; padding:16px;">
+      <div style="background:var(--card-bg); color:var(--text); width:100%; max-width:680px; max-height:88vh; border-radius:16px; border:2px solid #0d9488; box-shadow:0 20px 50px rgba(0,0,0,0.4); display:flex; flex-direction:column; overflow:hidden;">
+        <div style="padding:14px 18px; background:var(--surface-bg); border-bottom:1px solid var(--card-border); display:flex; justify-content:space-between; align-items:center;">
+          <div>
+            <h3 style="font-size:1.05rem; font-weight:800;">🗣️ 나만의 TTS 발음 교정 사전 & 낭독 규칙</h3>
+            <p style="font-size:0.78rem; color:var(--sub-text);">여기에 등록한 단어는 모든 카드에서 지정한 한글 발음으로 자동 변환되어 읽힙니다. ((1)→일번 교정은 기본 내장됨)</p>
+          </div>
+          <button type="button" class="btn btn-outline" onclick="closePronunciationDictModal()">✖ 닫기</button>
+        </div>
+
+        <div style="padding:14px 18px; overflow-y:auto; flex:1;">
+          <div style="background:var(--surface-bg); padding:10px 12px; border-radius:10px; margin-bottom:12px; border:1px solid var(--card-border);">
+            <label style="font-weight:800; font-size:0.85rem; cursor:pointer; display:flex; align-items:center; gap:6px;">
+              <input type="checkbox" id="tts-skip-paren-chk">
+              🔇 괄호 ( ) 안의 부연 설명은 읽지 않고 건너뛰기 (단, (1)·(2) 같은 번호는 정상 낭독)
+            </label>
+          </div>
+
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+            <strong style="font-size:0.85rem;">📋 표기 단어 → 실제 읽을 발음 목록</strong>
+            <button type="button" class="btn btn-outline" style="padding:4px 10px; font-size:0.78rem;" onclick="addPronunciationRuleRow('', '')">➕ 새 단어 추가</button>
+          </div>
+
+          <div id="tts-pron-rows-container" style="display:flex; flex-direction:column; gap:6px;"></div>
+        </div>
+
+        <div style="padding:12px 18px; background:var(--surface-bg); border-top:1px solid var(--card-border); display:flex; justify-content:space-between; align-items:center;">
+          <button type="button" class="btn btn-outline" style="font-size:0.78rem;" onclick="resetDefaultPronunciationRules()">기본 사전 복원</button>
+          <button type="button" class="btn btn-primary" onclick="savePronunciationModalChanges()">💾 발음 사전 저장 및 적용</button>
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modalWrap);
+}
+
+// 단일 문장 즉시 미리듣기
+function previewSingleTtsLine(rawText) {
+  if (!('speechSynthesis' in window)) return;
+  stopTtsPlayback();
+  const spoken = refineTextForKoreanSpeech(rawText);
+  if (!spoken) return;
+
+  const annSel = document.getElementById('tts-announcer-select');
+  const rateSel = document.getElementById('tts-rate-select');
+  const presetKey = annSel ? annSel.value : 'google_std';
+  const userRateMult = parseFloat(rateSel ? rateSel.value : '1.0') || 1.0;
+  const preset = GOOGLE_ANNOUNCER_PRESETS[presetKey] || GOOGLE_ANNOUNCER_PRESETS.google_std;
+
+  const utter = new SpeechSynthesisUtterance(spoken);
+  utter.lang = 'ko-KR';
+  const selectedVoice = pickBestGoogleKoreanVoice(presetKey);
+  if (selectedVoice) utter.voice = selectedVoice;
+  const isNaturalVoice = selectedVoice && /natural|online/i.test(selectedVoice.name);
+  utter.pitch = isNaturalVoice ? (presetKey === 'google_bright' ? 1.03 : 1.0) : preset.pitch;
+  utter.rate = Math.min(2.0, Math.max(0.7, +(preset.baseRate * userRateMult).toFixed(2)));
+  window.speechSynthesis.speak(utter);
+}
+
+// 🎙️ 오디오 낭독 대본 편집 모달 열기
+function openTtsScriptEditorModal() {
+  ensureTtsModalsCreated();
+  stopTtsPlayback();
+  const card = cards.find(c => c.id === currentCardId);
+  if (!card) return;
+
+  const defaultQueue = buildDefaultTtsQueueFromDom(card);
+  let scriptItems = [];
+
+  if (Array.isArray(card.customTtsScript) && card.customTtsScript.length > 0) {
+    scriptItems = card.customTtsScript.map(item => ({
+      enabled: item.enabled !== false,
+      text: item.text || ''
+    }));
+  } else {
+    scriptItems = defaultQueue.map(q => ({
+      enabled: true,
+      text: q.text.replace(/\.$/, '')
+    }));
+  }
+
+  const container = document.getElementById('tts-script-rows-container');
+  container.innerHTML = '';
+  scriptItems.forEach((item, idx) => {
+    appendTtsScriptRowElement(container, idx + 1, item.enabled, item.text);
+  });
+
+  document.getElementById('tts-script-modal').style.display = 'flex';
+}
+
+function appendTtsScriptRowElement(container, num, enabled, textVal) {
+  const row = document.createElement('div');
+  row.className = 'tts-script-edit-row';
+  row.style.cssText = 'display:flex; align-items:center; gap:6px; background:var(--surface-bg); padding:6px 8px; border-radius:8px; border:1px solid var(--card-border);';
+  row.innerHTML = `
+    <input type="checkbox" class="tts-row-chk" ${enabled ? 'checked' : ''} title="체크 해제 시 이 줄은 읽지 않고 건너뜁니다" style="width:17px; height:17px; cursor:pointer;">
+    <span style="font-size:0.76rem; font-weight:800; color:var(--sub-text); min-width:26px;">#${num}</span>
+    <input type="text" class="tts-row-input editor-input" style="flex:1; padding:6px 10px; font-size:0.85rem;" value="${(textVal || '').replace(/"/g, '&quot;')}">
+    <button type="button" class="btn btn-outline" style="padding:5px 8px; font-size:0.75rem;" onclick="previewSingleTtsLine(this.previousElementSibling.value)" title="이 줄만 미리 들어보기">▶ 듣기</button>
+    <button type="button" class="btn btn-outline" style="padding:5px 8px; font-size:0.75rem; color:#e11d48;" onclick="this.parentElement.remove()" title="이 줄 삭제">🗑️</button>
+  `;
+  container.appendChild(row);
+}
+
+function addTtsScriptCustomRow() {
+  const container = document.getElementById('tts-script-rows-container');
+  const nextNum = container.querySelectorAll('.tts-script-edit-row').length + 1;
+  appendTtsScriptRowElement(container, nextNum, true, '');
+}
+
+async function resetCurrentCardTtsScript() {
+  const card = cards.find(c => c.id === currentCardId);
+  if (!card) return;
+  if (!confirm('직접 편집한 낭독 대본을 지우고 본문 자동 추출 상태로 되돌리시겠습니까?')) return;
+  delete card.customTtsScript;
+  await dbSaveBatch([card]);
+  updateTtsScriptButtonBadge(card);
+  openTtsScriptEditorModal();
+}
+
+async function saveCurrentCardTtsScript(playImmediately) {
+  const card = cards.find(c => c.id === currentCardId);
+  if (!card) return;
+  const rows = Array.from(document.querySelectorAll('#tts-script-rows-container .tts-script-edit-row'));
+  const savedList = rows.map(r => ({
+    enabled: r.querySelector('.tts-row-chk').checked,
+    text: r.querySelector('.tts-row-input').value.trim()
+  })).filter(item => item.text.length > 0);
+
+  card.customTtsScript = savedList;
+  await dbSaveBatch([card]);
+  updateTtsScriptButtonBadge(card);
+  closeTtsScriptEditorModal();
+
+  if (playImmediately) {
+    speakCurrentCard();
+  }
+}
+
+function closeTtsScriptEditorModal() {
+  const m = document.getElementById('tts-script-modal');
+  if (m) m.style.display = 'none';
+}
+
+// 🗣️ 글로벌 발음 교정 사전 모달 열기
+function openPronunciationDictModal() {
+  ensureTtsModalsCreated();
+  stopTtsPlayback();
+
+  const chk = document.getElementById('tts-skip-paren-chk');
+  if (chk) chk.checked = getTtsSkipParenthesesOption();
+
+  const container = document.getElementById('tts-pron-rows-container');
+  container.innerHTML = '';
+  const rules = getCustomPronunciationRules();
+  rules.forEach(r => addPronunciationRuleRow(r.from, r.to));
+
+  document.getElementById('tts-pron-modal').style.display = 'flex';
+}
+
+function addPronunciationRuleRow(fromVal = '', toVal = '') {
+  const container = document.getElementById('tts-pron-rows-container');
+  const row = document.createElement('div');
+  row.className = 'tts-pron-rule-row';
+  row.style.cssText = 'display:flex; align-items:center; gap:6px;';
+  row.innerHTML = `
+    <input type="text" class="pron-from editor-input" placeholder="원래 표기 (예: 옥내소화전, CO2)" style="flex:1; padding:6px 10px; font-size:0.84rem;" value="${(fromVal || '').replace(/"/g, '&quot;')}">
+    <span style="font-weight:800; color:var(--sub-text);">→</span>
+    <input type="text" class="pron-to editor-input" placeholder="읽을 발음 (예: 옹내소화전, 이산화탄소)" style="flex:1; padding:6px 10px; font-size:0.84rem;" value="${(toVal || '').replace(/"/g, '&quot;')}">
+    <button type="button" class="btn btn-outline" style="padding:5px 8px; font-size:0.75rem;" onclick="previewSingleTtsLine(this.previousElementSibling.value)" title="발음 들어보기">🔊</button>
+    <button type="button" class="btn btn-outline" style="padding:5px 8px; font-size:0.75rem; color:#e11d48;" onclick="this.parentElement.remove()">✖</button>
+  `;
+  container.appendChild(row);
+}
+
+function resetDefaultPronunciationRules() {
+  saveCustomPronunciationRules(DEFAULT_PRONUNCIATION_RULES);
+  openPronunciationDictModal();
+}
+
+function savePronunciationModalChanges() {
+  const chk = document.getElementById('tts-skip-paren-chk');
+  if (chk) {
+    localStorage.setItem('memoryon_tts_skip_paren', chk.checked ? '1' : '0');
+  }
+
+  const rows = Array.from(document.querySelectorAll('#tts-pron-rows-container .tts-pron-rule-row'));
+  const nextRules = rows.map(r => ({
+    from: r.querySelector('.pron-from').value.trim(),
+    to: r.querySelector('.pron-to').value.trim()
+  })).filter(item => item.from.length > 0 && item.to.length > 0);
+
+  saveCustomPronunciationRules(nextRules);
+  closePronunciationDictModal();
+  alert('✅ 발음 교정 사전 및 낭독 규칙이 저장되었습니다!');
+}
+
+function closePronunciationDictModal() {
+  const m = document.getElementById('tts-pron-modal');
+  if (m) m.style.display = 'none';
+}
+
+/* =========================================================================
    글로벌 키보드 단축키 (학습 뷰 & 직접추가 에디터 뷰)
    ========================================================================= */
 document.addEventListener('keydown', (e) => {
-  const addSection = document.getElementById('view-add');
-  if (addSection && addSection.classList.contains('active')) {
+  const activeTag = document.activeElement ? document.activeElement.tagName : '';
+  const isTyping = ['INPUT', 'TEXTAREA', 'SELECT'].includes(activeTag) || document.activeElement?.isContentEditable;
+
+  const addSec = document.getElementById('view-add');
+  if (addSec && addSec.classList.contains('active')) {
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
       e.preventDefault();
-      if (directAddMode === 'batch') {
-        registerDirectBatchCards();
-      } else {
-        saveDirectCard(true);
-      }
-    } else if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'C' || e.key === 'c')) {
+      if (directAddMode === 'batch') registerDirectBatchCards();
+      else saveDirectCard(true);
+      return;
+    }
+    if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.code === 'KeyC' || e.code === 'KeyB')) {
       e.preventDefault();
-      insertEditorSyntax('red');
-    } else if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'B' || e.key === 'b')) {
-      e.preventDefault();
-      insertEditorSyntax('blue');
+      insertEditorSyntax(e.code === 'KeyC' ? 'red' : 'blue');
+      return;
     }
     return;
   }
 
-  if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) return;
-  if (isDirectContentEditMode) return;
-  if (!document.getElementById('view-study').classList.contains('active')) return;
+  if (isTyping) return;
+  const studySec = document.getElementById('view-study');
+  if (!studySec || !studySec.classList.contains('active')) return;
 
   if (e.altKey && /^Digit[0-6]$/.test(e.code)) {
     e.preventDefault();
